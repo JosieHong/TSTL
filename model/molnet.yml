@@ -1,0 +1,10 @@
+model: 
+  in_dim: 21
+  add_num: 0
+  max_atom_num: 300
+  emb_dim: 512 
+  k: 5
+  dropout: 0.2
+  encode_layers: [64, 64, 128, 256]
+  decode_layers: [512, 256, 128, 32]
+  out_dim: 1
