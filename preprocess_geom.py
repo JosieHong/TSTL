@@ -33,27 +33,27 @@ ENCODER = {
 }
 
 def determine_thr(x):
-    # x is the rt column of dataframe
-    value_counts = x.value_counts().sort_index()
-    thr = 0
-    pre_single_rt = True
-    count_single_rt = 0
-    for rt, counts in value_counts.items():
-        # print(rt, counts)
-        if counts > 1:
-            thr = rt
-            pre_single_rt = False
-            count_single_rt = 0
-            
-        elif counts == 1 and pre_single_rt == True:
-            count_single_rt += 1
-        
-        else:
-            pre_single_rt = True
-            count_single_rt = 1
-            
-        if count_single_rt > 2: 
-            return thr
+	# x is the rt column of dataframe
+	value_counts = x.value_counts().sort_index()
+	thr = 0
+	pre_single_rt = True
+	count_single_rt = 0
+	for rt, counts in value_counts.items():
+		# print(rt, counts)
+		if counts > 1:
+			thr = rt
+			pre_single_rt = False
+			count_single_rt = 0
+			
+		elif counts == 1 and pre_single_rt == True:
+			count_single_rt += 1
+		
+		else:
+			pre_single_rt = True
+			count_single_rt = 1
+			
+		if count_single_rt > 2: 
+			return thr
 
 def conformation_array(smiles, conf_type): 
 	# convert smiles to molecule
@@ -105,17 +105,17 @@ def conformation_array(smiles, conf_type):
 	atom_type = [atom.GetSymbol() for atom in mol_from_smiles.GetAtoms()]
 	return True, xyz_arr, atom_type
 
-def to_pkl(df, save_path):
+def to_pkl(df, save_path, smiles_col='smiles', label_col='rt', id_col='id'):
 	data = []
 	for _, row in df.iterrows():
 		# mol array
 		good_conf, xyz_arr, atom_type = conformation_array(
-			smiles=row['smiles'], 
+			smiles=row[smiles_col], 
 			conf_type=ENCODER['conf_type']
 		)
 		
 		if not good_conf:
-			print(f'Cannot generate correct conformation: {row["smiles"]} {row["id"]}')
+			print(f'Cannot generate correct conformation: {row[smiles_col]} {row[id_col]}')
 			continue
 			
 		if xyz_arr.shape[0] > ENCODER['max_atom_num']:
@@ -126,7 +126,7 @@ def to_pkl(df, save_path):
 		unsupported_atom = next((atom for atom in set(atom_type) 
 							   if atom not in ENCODER['atom_type']), None)
 		if unsupported_atom:
-			print(f'Unsupported atom type: {unsupported_atom} {row["id"]}')
+			print(f'Unsupported atom type: {unsupported_atom} {row[id_col]}')
 			continue
 
 		atom_type_one_hot = np.array([ENCODER['atom_type'][atom] for atom in atom_type])
@@ -138,10 +138,10 @@ def to_pkl(df, save_path):
 		)
 		
 		data.append({
-			'title': row['id'],
-			'smiles': row['smiles'],
+			'title': row[id_col],
+			'smiles': row[smiles_col],
 			'mol': np.transpose(mol_arr, (1, 0)),
-			'rt': row['rt']
+			'rt': row[label_col]
 		})
 	
 	with open(save_path, 'wb') as f:
@@ -164,36 +164,36 @@ def process_subset(subset, df, out_dir, seed):
 	
 	return avg_rt_df 
 
-def save_dataset(subset_id, df, out_dir):
+def save_dataset(subset_id, df, out_dir, smiles_col='smiles', label_col='rt', id_col='id'):
 	"""Save dataset to both CSV and PKL formats"""
 	if subset_id == 'SMRT': 
 		base_path = os.path.join(out_dir, f'dataset_geom_{subset_id}')
 	else: 
 		base_path = os.path.join(out_dir, f'dataset_geom_report{subset_id}')
 	# df.to_csv(f'{base_path}.csv', index=False) # CSV format is not needed now 
-	to_pkl(df, f'{base_path}.pkl')
+	to_pkl(df, f'{base_path}.pkl', smiles_col=smiles_col, label_col=label_col, id_col=id_col)
 
+def process_SMRT_dataset(smrt_path, threshold, out_dir):
+	suppl = Chem.SDMolSupplier(smrt_path, removeHs=False)
+	df = []
+	for mol in suppl: 
+		if mol is not None and mol.HasProp('RETENTION_TIME') and mol.HasProp('PUBCHEM_COMPOUND_CID'):  
+			item = {}
+			item['rt'] = mol.GetProp('RETENTION_TIME')
+			item['id'] = mol.GetProp('PUBCHEM_COMPOUND_CID')
+			smiles = Chem.MolToSmiles(mol, isomericSmiles=True)
+			item['smiles'] = smiles
+			df.append(item)
+	df = pd.DataFrame(df)
+	df['rt'] = pd.to_numeric(df['rt'], errors='coerce') # Convert to numeric and mark failed conversions as NaN
+	df = df.dropna(subset=['rt']) # Remove rows where conversion failed (became NaN)
+	if len(df) < threshold:
+		print(f"SMRT dataset has too few samples: {len(df)} < {threshold}")
+	else:
+		save_dataset('SMRT', df, out_dir)
+		print('SMRT dataset is processed.')
 
-
-if __name__ == "__main__": 
-	# Configuration ==============================
-	threshold = 100  # at least 10-shot for TSTL (70% for TL or TSTL, 30% for testing)
-	seed = 42
-	report_dir = "./data/RepoRT/processed_data"
-	smrt_dir = "./data/SMRT_dataset.sdf"
-	# out_dir = "./data/processed_geom"
-	out_dir = "./data/new_processed_geom"
-	sample_numbers = ""
-
-	# Setup
-	if not os.path.exists(report_dir):
-		raise FileNotFoundError("Report dataset not found. Please download the data first.")
-	if not os.path.exists(smrt_dir):
-		raise FileNotFoundError("SMRT dataset not found. Please download the data first.")
-	os.makedirs(out_dir, exist_ok=True)
-	random.seed(seed)
-	
-	# RepoRT ==============================
+def process_RepoRT_dataset(report_dir, threshold, out_dir):
 	# Initialize tracking
 	discarded_record = {
 		'manually_removed': [],
@@ -203,6 +203,7 @@ if __name__ == "__main__":
 		'missing_rt_data': [],
 		'explore': [],
 	}
+	sample_numbers = ""
 	pretrained_dfs = {}
 	
 	# Process each subset
@@ -218,13 +219,13 @@ if __name__ == "__main__":
 		# Filter 2: check if the subset has the required columns in metadata
 		metadata_path = os.path.join(report_dir, subset, "{}_metadata.tsv".format(subset))
 		if not os.path.exists(metadata_path):
-		    print('Metadata not found: {}'.format(metadata_path))
-		    discarded_record['missing_metadata'].append(subset)
-		    continue
+			print('Metadata not found: {}'.format(metadata_path))
+			discarded_record['missing_metadata'].append(subset)
+			continue
 		if not check_metadata(metadata_path):
-		    print('Missing required columns: {}'.format(metadata_path))
-		    discarded_record['missing_required_condition'].append(subset)
-		    continue
+			print('Missing required columns: {}'.format(metadata_path))
+			discarded_record['missing_required_condition'].append(subset)
+			continue
 
 		# Load data
 		subset_path = os.path.join(report_dir, subset, f"{subset}_rtdata_isomeric_success.tsv")
@@ -263,19 +264,22 @@ if __name__ == "__main__":
 	with open(os.path.join(out_dir, "report_geom_sample_numbers.txt"), 'w') as f:
 		f.write(sample_numbers)
 
+if __name__ == "__main__": 
+	# Configuration ==============================
+	threshold = 100  # at least 10-shot for TSTL (70% for TL or TSTL, 30% for testing)
+	seed = 42
+	out_dir = "./data/processed_geom"
+
+	# Setup
+	if not os.path.exists("./data/RepoRT/processed_data"):
+		raise FileNotFoundError("Report dataset not found. Please download the data first.")
+	if not os.path.exists("./data/SMRT_dataset.sdf"):
+		raise FileNotFoundError("SMRT dataset not found. Please download the data first.")
+	os.makedirs(out_dir, exist_ok=True)
+	random.seed(seed)
+	
+	# RepoRT ==============================
+	process_RepoRT_dataset("./data/RepoRT/processed_data", threshold=threshold, out_dir=out_dir)
+
 	# SMRT ==============================
-	suppl = Chem.SDMolSupplier(smrt_dir, removeHs=False)
-	df = []
-	for mol in suppl: 
-		if mol is not None and mol.HasProp('RETENTION_TIME') and mol.HasProp('PUBCHEM_COMPOUND_CID'):  
-			item = {}
-			item['rt'] = mol.GetProp('RETENTION_TIME')
-			item['id'] = mol.GetProp('PUBCHEM_COMPOUND_CID')
-			smiles = Chem.MolToSmiles(mol, isomericSmiles=True)
-			item['smiles'] = smiles
-			df.append(item)
-	df = pd.DataFrame(df)
-	df['rt'] = pd.to_numeric(df['rt'], errors='coerce') # Convert to numeric and mark failed conversions as NaN
-	df = df.dropna(subset=['rt']) # Remove rows where conversion failed (became NaN)
-	save_dataset('SMRT', df, out_dir)
-	print('SMRT dataset is processed.')
+	process_SMRT_dataset("./data/SMRT_dataset.sdf", threshold=threshold, out_dir=out_dir)

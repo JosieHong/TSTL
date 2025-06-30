@@ -10,7 +10,7 @@ from util import evaluate_model, save_metrics_to_csv
 from trainer import tlTrainer
 
 def train_and_evaluate(model_name, task_name, data_dir, checkpoint_path,
-						val_ratio=0.1, batch_size=32, lr=1e-4,
+						val_ratio=0.1, batch_size=32, lr=1e-4, opt='adam',
 						fold_id=None, n_splits=5, device=0, seed=42, verbose=False):  
 	device = torch.device(f'cuda:{device}' if torch.cuda.is_available() else 'cpu')
 	# device = torch.device('cpu') # DEBUG: Force CPU for debugging
@@ -61,7 +61,7 @@ def train_and_evaluate(model_name, task_name, data_dir, checkpoint_path,
 		trn_y_std,
 		save_path=checkpoint_path,
 		method='scratch',
-		opt='adam',
+		opt=opt,
 		verbose=verbose, 
 	)
 	
@@ -134,7 +134,7 @@ if __name__ == '__main__':
 			
 			# Train and evaluate model
 			metrics = train_and_evaluate(model_name=args.gnn, task_name=args.target, data_dir=args.data_dir, checkpoint_path=checkpoint_path,
-										val_ratio=val_ratio, batch_size=batch_size, lr=learning_rate, 
+										val_ratio=val_ratio, batch_size=batch_size, lr=learning_rate, opt=args.opt,
 										fold_id=fold, n_splits=args.n_folds, device=args.device, seed=args.seed, verbose=args.verbose)
 			all_metrics.append(metrics)
 			
